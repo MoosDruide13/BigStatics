@@ -19,11 +19,6 @@ public final class BigStatics extends JavaPlugin {
     public void onDisable() {
         // Plugin shutdown logic
         hm.onServerStop();
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
         Bukkit.getLogger().info("Done saving!");
     }
 }

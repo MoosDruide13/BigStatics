@@ -3,6 +3,7 @@ package me.moos.bigStatics;
 import net.kyori.adventure.text.Component;
 import org.bukkit.*;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 import java.util.ArrayDeque;
@@ -10,7 +11,7 @@ import java.util.HashMap;
 
 public class StaticsManager implements Listener {
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOW)
     public void onBlockPlaced(BlockPlaceEvent event) {
         if (event.isCancelled()) return;
 
