@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.HashSet;
 
@@ -16,79 +17,91 @@ public class StaticsManager implements Listener {
     public void onBlockPlaced(BlockPlaceEvent event) {
         if (event.isCancelled()) return;
 
-        //int y = OriginalTerrainHeightMapManager.getY(event.getBlock().getX(), event.getBlock().getZ(), event.getBlock().getWorld());
-        //event.getPlayer().sendActionBar(Component.text("Heightmap: " + y));
-
-        int complexity = computeStructureComplexityAtLocation(event.getBlock().getLocation(), new HashSet<Location>(), 0, 0);
+        int complexity = computeStructureComplexity(event.getBlock().getLocation());
         event.getPlayer().sendActionBar(Component.text("Complexity: " + complexity));
-        //event.getPlayer().sendMessage(Component.text("Heightmap: " + event.getBlock().getWorld().getHighestBlockYAt(event.getBlock().getLocation(), HeightMap.OCEAN_FLOOR_WG)));
 
-        if (complexity >= 500)
+        if (complexity == Integer.MAX_VALUE)
         {
             event.setCancelled(true);
             event.getPlayer().sendMessage(Component.text("This location can not support a block here!").appendNewline().append(Component.text("You could build additional support pillars.")));
         }
     }
 
-    public int computeStructureComplexityAtLocation(Location loc, HashSet<Location> checkedLocations, int existingComplexity, int currentSearchDepth) {
-        // Avoid StackOverflowError
-        if (currentSearchDepth > 300) {
-            Bukkit.getLogger().warning("computeStructureComplecityAtLocation has reached a recursion depth of 500!");
-            return Integer.MAX_VALUE;
+    public int computeStructureComplexity(Location start) {
+
+        World world = start.getWorld();
+
+        record Node(int x, int y, int z, int cost) {}
+
+        ArrayDeque<Node> deque = new ArrayDeque<>();
+
+        // shortest known complexity to each block
+        HashMap<Long, Integer> bestCost = new HashMap<>();
+
+        deque.addFirst(new Node(
+                start.getBlockX(),
+                start.getBlockY(),
+                start.getBlockZ(),
+                0
+        ));
+
+        while (!deque.isEmpty()) {
+
+            Node node = deque.pollFirst();
+
+            int x = node.x();
+            int y = node.y();
+            int z = node.z();
+            int cost = node.cost();
+
+            if (cost > 20) {
+                continue;
+            }
+
+            long key = pack(x, y, z);
+            Integer known = bestCost.get(key);
+
+            // already found better route
+            if (known != null && known <= cost) {
+                continue;
+            }
+
+            bestCost.put(key, cost);
+
+            int terrainY = OriginalTerrainHeightMapManager.getY(x, z, world);
+
+            // reached natural terrain
+            if (terrainY >= y && world.getBlockAt(x, terrainY - 1, z).isSolid()) {
+                return cost;
+            }
+
+            if (world.getBlockAt(x, y - 1, z).isSolid()) {
+                deque.addFirst(new Node(x, y - 1, z, cost));
+            }
+
+            if (world.getBlockAt(x + 1, y, z).isSolid()) {
+                deque.addLast(new Node(x + 1, y, z, cost + 1));
+            }
+
+            if (world.getBlockAt(x - 1, y, z).isSolid()) {
+                deque.addLast(new Node(x - 1, y, z, cost + 1));
+            }
+
+            if (world.getBlockAt(x, y, z + 1).isSolid()) {
+                deque.addLast(new Node(x, y, z + 1, cost + 1));
+            }
+
+            if (world.getBlockAt(x, y, z - 1).isSolid()) {
+                deque.addLast(new Node(x, y, z - 1, cost + 1));
+            }
         }
 
-        if (existingComplexity > 500) {
-            Bukkit.getLogger().warning("complexity limit reached for recursion search!");
-            return Integer.MAX_VALUE;
-        }
+        return Integer.MAX_VALUE;
+    }
 
-        currentSearchDepth++;
-
-        // If this location already has been visited, it should not be included again
-        if (checkedLocations.contains(loc)) return Integer.MAX_VALUE;//existingComplexity;
-        checkedLocations.add(loc);
-
-        int terrainY = OriginalTerrainHeightMapManager.getY(loc.getBlockX(), loc.getBlockZ(), loc.getWorld());//loc.getWorld().getHighestBlockYAt(loc, HeightMap.OCEAN_FLOOR);
-
-        // Is this on the world surface? (World surface is always treated as "anchored" no matter what)
-        if (terrainY >= loc.getBlockY() && loc.getWorld().getBlockAt(loc.getBlockX(), terrainY - 1, loc.getBlockZ()).isSolid()) {
-            loc.getBlock().setType(Material.NETHERITE_BLOCK);
-            return existingComplexity;
-        }
-
-        int computedComplexityDown = Integer.MAX_VALUE;
-        int computedComplexityForwards = Integer.MAX_VALUE;
-        int computedComplexityBackwards = Integer.MAX_VALUE;
-        int computedComplexityLeft = Integer.MAX_VALUE;
-        int computedComplexityRight = Integer.MAX_VALUE;
-
-        World world = loc.getWorld();
-        if (world.getBlockAt(loc.getBlockX(), loc.getBlockY() - 1, loc.getBlockZ()).isSolid()) {
-            computedComplexityDown = computeStructureComplexityAtLocation(loc.clone().add(0, -1, 0), checkedLocations, existingComplexity, currentSearchDepth);
-        }
-
-        if (computedComplexityDown > 500 && world.getBlockAt(loc.getBlockX() + 1, loc.getBlockY(), loc.getBlockZ()).isSolid()) {
-            computedComplexityRight = computeStructureComplexityAtLocation(loc.clone().add(1, 0, 0), checkedLocations, existingComplexity + 1, currentSearchDepth);
-        }
-
-        if (computedComplexityRight > 500 && world.getBlockAt(loc.getBlockX() - 1, loc.getBlockY(), loc.getBlockZ()).isSolid()) {
-            computedComplexityLeft = computeStructureComplexityAtLocation(loc.clone().add(-1, 0, 0), checkedLocations, existingComplexity + 1, currentSearchDepth);
-        }
-
-        if (computedComplexityLeft > 500 && world.getBlockAt(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ() + 1).isSolid()) {
-            computedComplexityForwards = computeStructureComplexityAtLocation(loc.clone().add(0, 0, 1), checkedLocations, existingComplexity + 1, currentSearchDepth);
-        }
-
-        if (computedComplexityForwards > 500 && world.getBlockAt(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ() - 1).isSolid()) {
-            computedComplexityBackwards = computeStructureComplexityAtLocation(loc.clone().add(0, 0, -1), checkedLocations, existingComplexity + 1, currentSearchDepth);
-        }
-
-        // return the least complex route we have found
-        int leastComplexRoute = Math.min(computedComplexityDown, Math.min(Math.min(computedComplexityRight, computedComplexityLeft), Math.min(computedComplexityBackwards, computedComplexityForwards)));
-        if (leastComplexRoute != Integer.MAX_VALUE) {
-            return leastComplexRoute + existingComplexity;
-        }
-
-        return leastComplexRoute;
+    private long pack(int x, int y, int z) {
+        return (((long)x & 0x3FFFFFF) << 38)
+                | (((long)z & 0x3FFFFFF) << 12)
+                | ((long)y & 0xFFF);
     }
 }
