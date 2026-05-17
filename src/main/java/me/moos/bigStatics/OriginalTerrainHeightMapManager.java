@@ -17,39 +17,35 @@ import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class OriginalTerrainHeightMapManager implements Listener {
-    static ConcurrentHashMap<NamespacedKey, ConcurrentHashMap<Long, short[]>> LoadedChunkHeightMaps = new ConcurrentHashMap<>();
-    static ConcurrentHashMap<NamespacedKey, List<Long>> NewGeneratedChunks= new ConcurrentHashMap<>();
+    static final ConcurrentHashMap<NamespacedKey, ConcurrentHashMap<Long, short[]>> LoadedChunkHeightMaps = new ConcurrentHashMap<>();
+    static final ConcurrentHashMap<NamespacedKey, Set<Long>> NewGeneratedChunks= new ConcurrentHashMap<>();
+    static final ConcurrentHashMap<String, Object> FileLocks = new ConcurrentHashMap<>();
 
     @EventHandler
-    public void onChunkLoad(ChunkLoadEvent event)
-    {
-        long chunkKey = event.getChunk().getChunkKey();
+    public void onChunkLoad(ChunkLoadEvent event) {
         NamespacedKey worldKey = event.getWorld().getKey();
-        if (LoadedChunkHeightMaps.containsKey(worldKey)) {
-            if (!LoadedChunkHeightMaps.get(worldKey).containsKey(chunkKey)) {
-                // We only need to load or generate the data when it isn't loaded already
-                short[] loadedData = loadChunkHeightMap(chunkKey, worldKey);
+        long chunkKey = event.getChunk().getChunkKey();
+        ConcurrentHashMap<Long, short[]> worldMap = LoadedChunkHeightMaps.get(worldKey);
 
-                if (loadedData.length == 0) {
-                    // Data could not be loaded from disk -> generate it
-                    LoadedChunkHeightMaps.get(worldKey).put(chunkKey, generateChunkHeightMap(event.getChunk()));
-                    NewGeneratedChunks.get(worldKey).add(chunkKey);
-                }
-                else {
-                    // Data was loaded from disk
-                    LoadedChunkHeightMaps.get(worldKey).put(chunkKey, loadedData);
-                }
-            }
+        if (worldMap == null) {
+            return;
         }
-        /*else {
-            Bukkit.getLogger().info("Ignoring chunk load as world " + worldKey.asString() + " is not in the cache");
-        }*/
+
+        worldMap.computeIfAbsent(chunkKey, heightDataArray -> {
+            short[] loaded = loadChunkHeightMap(chunkKey, worldKey);
+
+            if (loaded.length != 0) {
+                return loaded;
+            }
+
+            short[] generated = generateChunkHeightMap(event.getChunk());
+            NewGeneratedChunks.computeIfAbsent(worldKey, chunkKeySet -> ConcurrentHashMap.newKeySet()).add(chunkKey);
+            return generated;
+        });
     }
 
     @EventHandler
@@ -67,55 +63,71 @@ public class OriginalTerrainHeightMapManager implements Listener {
     }
 
     private static short[] loadChunkHeightMap(long chunkKey, NamespacedKey worldKey) {
-        int chunkX = (int)(chunkKey);
-        int chunkZ = (int)(chunkKey >> 32);
+
+        int chunkX = (int) chunkKey;
+        int chunkZ = (int) (chunkKey >> 32);
+
         int regionX = chunkX >> 5;
         int regionZ = chunkZ >> 5;
-        String dataFolder = JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class).getDataFolder().getPath();
-        File heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString() + "/r." + regionX + "." + regionZ + ".bhm");
+
+        String dataFolder =
+                JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class)
+                        .getDataFolder()
+                        .getPath();
+
+        File heightMapFile =
+                new File(dataFolder + "/OriginalHeightMaps/"
+                        + worldKey.asString()
+                        + "/r." + regionX + "." + regionZ + ".bhm");
 
         if (!heightMapFile.exists()) {
             return new short[0];
         }
 
-        try {
-            FileChannel fileReader = FileChannel.open(heightMapFile.toPath(), StandardOpenOption.READ);
-            byte[] rawChunksInFile = new byte[2];
-            fileReader.read(ByteBuffer.wrap(rawChunksInFile));
-            short chunksInFile = (short)((rawChunksInFile[1] & 0xFF) | ((rawChunksInFile[0] & 0xFF) << 8));
-            byte[] rawChunkKey = new byte[8];
-            ByteBuffer keyBuffer = ByteBuffer.wrap(rawChunkKey);
-            ByteBuffer heightMapBuffer = ByteBuffer.allocate(512);
-            boolean keyFound = false;
-            for (int i = 0; i < chunksInFile; i++) {
-                fileReader.read(keyBuffer, 2 + (i * 8));
-                keyBuffer.flip();
-                if (keyBuffer.getLong() == chunkKey) {
-                    keyFound = true;
-                    fileReader.read(heightMapBuffer, 2 + 8192 + (i * 512));
-                    heightMapBuffer.flip();
+        String regionKey = worldKey.asString() + ":" + regionX + ":" + regionZ;
 
-                    break;
+        synchronized (FileLocks.computeIfAbsent(regionKey, k -> new Object())) {
+            try (FileChannel fileReader = FileChannel.open(heightMapFile.toPath(), StandardOpenOption.READ)) {
+                ByteBuffer shortBuffer = ByteBuffer.allocate(2);
+                fileReader.read(shortBuffer, 0);
+                shortBuffer.flip();
+
+                short chunksInFile = shortBuffer.getShort();
+
+                ByteBuffer keyBuffer = ByteBuffer.allocate(8);
+                ByteBuffer heightMapBuffer = ByteBuffer.allocate(512);
+
+                boolean keyFound = false;
+                for (int i = 0; i < chunksInFile; i++) {
+                    keyBuffer.clear();
+                    fileReader.read(keyBuffer, 2L + (i * 8L));
+                    keyBuffer.flip();
+
+                    if (keyBuffer.getLong() == chunkKey) {
+                        heightMapBuffer.clear();
+                        fileReader.read(heightMapBuffer, 2L + 8192L + (i * 512L));
+                        heightMapBuffer.flip();
+
+                        keyFound = true;
+                        break;
+                    }
                 }
-                keyBuffer.flip();
-            }
-            fileReader.close();
-            if (!keyFound) {
-                // The requested chunk does not exist on disk
+
+                if (!keyFound) {
+                    return new short[0];
+                }
+
+                short[] output = new short[256];
+                for (int i = 0; i < 256; i++) {
+                    output[i] = heightMapBuffer.getShort();
+                }
+
+                return output;
+
+            } catch (IOException e) {
+                Bukkit.getLogger().severe("Failed to load heightmap: " + e.getMessage());
                 return new short[0];
             }
-            short[] output = new short[16 * 16];
-            for (int i = 0; i < 256; i += 1) {
-                try {
-                    output[i] = heightMapBuffer.getShort();
-                } catch (BufferUnderflowException e) {
-                    Bukkit.getLogger().severe("Underflow when attempting to load the " + (i + 1) + "th short!");
-                    break;
-                }
-            }
-            return output;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -124,7 +136,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
         if (LoadedChunkHeightMaps.containsKey(world.getKey())) {
             int chunkX = blockX >> 4;
             int chunkZ = blockZ >> 4;
-            long chunkKey = ((long)chunkZ << 32) | chunkX;
+            long chunkKey = (((long) chunkZ) << 32) | (chunkX & 0xffffffffL);
             if (LoadedChunkHeightMaps.get(world.getKey()).containsKey(chunkKey)) {
                 //Bukkit.getLogger().info("ChunkKey found!");
                 short[] heightMap = LoadedChunkHeightMaps.get(world.getKey()).get(chunkKey);
@@ -160,26 +172,35 @@ public class OriginalTerrainHeightMapManager implements Listener {
 
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
-        if (!LoadedChunkHeightMaps.containsKey(event.getWorld().getKey())) {
-            LoadedChunkHeightMaps.put(event.getWorld().getKey(), new ConcurrentHashMap<>());
-            NewGeneratedChunks.put(event.getWorld().getKey(), Collections.synchronizedList(new ArrayList<Long>()));
-            Bukkit.getLogger().info("Added world '" + event.getWorld().getKey().asString() + "' to the heightmap cache.");
-        }
+        NamespacedKey worldKey = event.getWorld().getKey();
+
+        LoadedChunkHeightMaps.computeIfAbsent(worldKey, k -> new ConcurrentHashMap<>());
+        NewGeneratedChunks.computeIfAbsent(worldKey, k -> ConcurrentHashMap.newKeySet());
+
+        Bukkit.getLogger().info("Added world '" + worldKey.asString() + "' to the heightmap cache.");
     }
 
     @EventHandler
     public void onWorldUnload(WorldUnloadEvent event) {
-        Bukkit.getLogger().info("Saving heightmap data!");
+        NamespacedKey worldKey = event.getWorld().getKey();
+        Bukkit.getLogger().info("Saving heightmap data of " + worldKey.asString());
 
-        Bukkit.getAsyncScheduler().runNow(JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class), (Task) -> {
-            saveAllHeightMapData();
-        });
-
-        if (LoadedChunkHeightMaps.containsKey(event.getWorld().getKey())) {
-            LoadedChunkHeightMaps.remove(event.getWorld().getKey());
-            NewGeneratedChunks.remove(event.getWorld().getKey());
-            Bukkit.getLogger().info("Removed world '" + event.getWorld().getKey().asString() + "' from the heightmap cache.");
+        ConcurrentHashMap<Long, short[]> worldMap = LoadedChunkHeightMaps.get(worldKey);
+        if (worldMap == null) {
+            return;
         }
+
+        Bukkit.getAsyncScheduler().runNow(JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class), task -> {
+            for (Long chunkKey : worldMap.keySet()) {
+                saveChunkHeightMapData(worldKey, chunkKey);
+            }
+
+            LoadedChunkHeightMaps.remove(worldKey);
+            NewGeneratedChunks.remove(worldKey);
+
+            Bukkit.getLogger().info(
+                    "Removed world '" + worldKey.asString() + "' from cache.");
+        });
     }
 
     public void onServerStop()
@@ -197,73 +218,74 @@ public class OriginalTerrainHeightMapManager implements Listener {
     }
 
     private static void saveChunkHeightMapData(NamespacedKey worldKey, long chunkKey) {
-        if (!NewGeneratedChunks.containsKey(worldKey)) {
-            throw new IllegalArgumentException("Can not save heightmap data of uncached world '" + worldKey.asString() + "'!");
-        }
-        if (!NewGeneratedChunks.get(worldKey).contains(chunkKey)) {
-            // There is no point in saving a heightmap to disk that was loaded from disk in the first place.
+        Set<Long> newChunks = NewGeneratedChunks.get(worldKey);
+        if (newChunks == null || !newChunks.remove(chunkKey)) {
             return;
         }
-        NewGeneratedChunks.get(worldKey).remove(chunkKey);
 
-        int chunkX = (int)(chunkKey);
-        int chunkZ = (int)(chunkKey >> 32);
+        ConcurrentHashMap<Long, short[]> worldMap = LoadedChunkHeightMaps.get(worldKey);
+        if (worldMap == null) {
+            return;
+        }
+
+        short[] heightmapData = worldMap.get(chunkKey);
+        if (heightmapData == null) {
+            return;
+        }
+
+        int chunkX = (int) chunkKey;
+        int chunkZ = (int) (chunkKey >> 32);
         int regionX = chunkX >> 5;
         int regionZ = chunkZ >> 5;
+
         String dataFolder = JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class).getDataFolder().getPath();
         File heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString() + "/r." + regionX + "." + regionZ + ".bhm");
-        if (heightMapFile.exists() && heightMapFile.length() != 2 + 8192 + 524288) {
-            Bukkit.getLogger().warning("File " + heightMapFile.getPath() + " is unexpected size! Expected: " + (2 + 8192 + 524288) + ", Actual: " + heightMapFile.length());
-        }
+        String regionKey = worldKey.asString() + ":" + regionX + ":" + regionZ;
 
-        if (!heightMapFile.exists()) {
+        synchronized (FileLocks.computeIfAbsent(regionKey, k -> new Object())) {
             try {
-                heightMapFile.getParentFile().mkdirs();
-                heightMapFile.createNewFile();
+                if (!heightMapFile.exists()) {
+                    heightMapFile.getParentFile().mkdirs();
+                    try (FileOutputStream out = new FileOutputStream(heightMapFile)) {
+                        out.write(new byte[2 + 8192 + 524288]);
+                    }
+                }
 
-                FileOutputStream fileWriter = new FileOutputStream(heightMapFile);
-                fileWriter.write(new byte[2 + 8192 + 524288]);
-                fileWriter.close();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+                try (FileChannel channel = FileChannel.open(heightMapFile.toPath(), StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                    ByteBuffer shortBuffer = ByteBuffer.allocate(2);
+                    channel.read(shortBuffer, 0);
+                    shortBuffer.flip();
+
+                    short chunksInFile = shortBuffer.getShort();
+                    if (chunksInFile >= 1024) {
+                        Bukkit.getLogger().severe("Region file full!");
+                        return;
+                    }
+
+                    ByteBuffer dataBuffer = ByteBuffer.allocate(512);
+                    for (short s : heightmapData) {
+                        dataBuffer.putShort(s);
+                    }
+                    dataBuffer.flip();
+
+                    long keyPosition = 2L + (chunksInFile * 8L);
+                    long dataPosition = 2L + 8192L + (chunksInFile * 512L);
+
+                    writeFully(channel, dataBuffer, dataPosition);
+
+                    ByteBuffer keyBuffer = ByteBuffer.allocate(8);
+                    keyBuffer.putLong(chunkKey);
+                    keyBuffer.flip();
+                    writeFully(channel, keyBuffer, keyPosition);
+
+                    ByteBuffer countBuffer = ByteBuffer.allocate(2);
+                    countBuffer.putShort((short) (chunksInFile + 1));
+                    countBuffer.flip();
+                    writeFully(channel, countBuffer, 0);
+                }
+            } catch (IOException e) {
+                Bukkit.getLogger().severe("Failed to save heightmap: " + e.getMessage());
             }
-        }
-        heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString() + "/r." + regionX + "." + regionZ + ".bhm");
-
-        try {
-            FileInputStream fileReader = new FileInputStream(heightMapFile);
-            byte[] rawChunksInFile = new byte[2];
-            fileReader.read(rawChunksInFile);
-            fileReader.close();
-
-            short[] heightmapData = LoadedChunkHeightMaps.get(worldKey).get(chunkKey);
-            ByteBuffer buffer = ByteBuffer.allocate(heightmapData.length * 2);
-
-            for (short s : heightmapData) {
-                buffer.putShort(s);
-            }
-
-            buffer.flip();
-
-            short chunksInFile = (short)((rawChunksInFile[1] & 0xFF) | ((rawChunksInFile[0] & 0xFF) << 8));
-            if (chunksInFile > 32 * 32) {
-                Bukkit.getLogger().severe("Chunk count in file is corrupt! Actual value: " + chunksInFile + ", Max allowed value: " + 32 * 32);
-            }
-
-            FileChannel fileWriter = FileChannel.open(heightMapFile.toPath(), StandardOpenOption.WRITE);
-            writeFully(fileWriter, buffer, 2 + 8192 + (chunksInFile * 512));
-            buffer = ByteBuffer.allocate(8);
-            buffer.putLong(chunkKey);
-            buffer.flip();
-            writeFully(fileWriter, buffer, 2 + (chunksInFile * 8));
-            chunksInFile++;
-            buffer = ByteBuffer.allocate(2);
-            buffer.putShort(chunksInFile);
-            buffer.flip();
-            writeFully(fileWriter, buffer, 0);
-            fileWriter.close();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 

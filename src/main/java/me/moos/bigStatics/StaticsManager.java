@@ -1,15 +1,12 @@
 package me.moos.bigStatics;
 
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.event.ClickEvent;
 import org.bukkit.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
-
 import java.util.ArrayDeque;
 import java.util.HashMap;
-import java.util.HashSet;
 
 public class StaticsManager implements Listener {
 
@@ -18,8 +15,6 @@ public class StaticsManager implements Listener {
         if (event.isCancelled()) return;
 
         int complexity = computeStructureComplexity(event.getBlock().getLocation());
-        event.getPlayer().sendActionBar(Component.text("Complexity: " + complexity));
-
         if (complexity == Integer.MAX_VALUE)
         {
             event.setCancelled(true);
@@ -28,16 +23,12 @@ public class StaticsManager implements Listener {
     }
 
     public int computeStructureComplexity(Location start) {
-
         World world = start.getWorld();
-
         record Node(int x, int y, int z, int cost) {}
-
         ArrayDeque<Node> deque = new ArrayDeque<>();
 
         // shortest known complexity to each block
         HashMap<Long, Integer> bestCost = new HashMap<>();
-
         deque.addFirst(new Node(
                 start.getBlockX(),
                 start.getBlockY(),
@@ -46,9 +37,7 @@ public class StaticsManager implements Listener {
         ));
 
         while (!deque.isEmpty()) {
-
             Node node = deque.pollFirst();
-
             int x = node.x();
             int y = node.y();
             int z = node.z();
@@ -67,7 +56,6 @@ public class StaticsManager implements Listener {
             }
 
             bestCost.put(key, cost);
-
             int terrainY = OriginalTerrainHeightMapManager.getY(x, z, world);
 
             // reached natural terrain
@@ -95,7 +83,6 @@ public class StaticsManager implements Listener {
                 deque.addLast(new Node(x, y, z - 1, cost + 1));
             }
         }
-
         return Integer.MAX_VALUE;
     }
 
