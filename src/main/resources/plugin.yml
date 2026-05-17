@@ -1,0 +1,8 @@
+name: BigStatics
+version: '${version}'
+
+main: me.moos.bigStatics.BigStatics
+api-version: '26.1.2'
+load: STARTUP
+
+authors: [ Moos ]
