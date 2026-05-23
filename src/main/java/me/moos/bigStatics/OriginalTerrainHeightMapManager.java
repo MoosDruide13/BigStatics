@@ -8,12 +8,9 @@ import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
@@ -138,7 +135,6 @@ public class OriginalTerrainHeightMapManager implements Listener {
             int chunkZ = blockZ >> 4;
             long chunkKey = (((long) chunkZ) << 32) | (chunkX & 0xffffffffL);
             if (LoadedChunkHeightMaps.get(world.getKey()).containsKey(chunkKey)) {
-                //Bukkit.getLogger().info("ChunkKey found!");
                 short[] heightMap = LoadedChunkHeightMaps.get(world.getKey()).get(chunkKey);
                 if (heightMap == null) {
                     Bukkit.getLogger().severe("heightMap for location " + blockX + ", " + blockZ + " in world " + world.getKey().asString() + " is null!");
