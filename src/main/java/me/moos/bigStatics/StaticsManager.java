@@ -16,6 +16,7 @@ public class StaticsManager implements Listener {
         if (event.isCancelled()) return;
 
         int complexity = computeStructureComplexity(event.getBlock().getLocation());
+        //event.getPlayer().sendMessage(Component.text("Complexity: " + complexity));
         if (complexity == Integer.MAX_VALUE)
         {
             event.setCancelled(true);
