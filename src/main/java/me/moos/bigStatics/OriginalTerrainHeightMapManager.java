@@ -59,11 +59,11 @@ public class OriginalTerrainHeightMapManager implements Listener {
                     pending.remove(chunkKey);
                 }
             } else {
-                Bukkit.getScheduler().runTask(JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class), syncTask -> {
+                int chunkX = event.getChunk().getX();
+                int chunkZ = event.getChunk().getZ();
+                Bukkit.getRegionScheduler().run(JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class), event.getWorld(), chunkX, chunkZ, syncTask -> {
                     if (pending.contains(chunkKey)) {
-                        int cx = (int) chunkKey;
-                        int cz = (int) (chunkKey >> 32);
-                        Chunk chunk = event.getWorld().getChunkAt(chunkKey);
+                        Chunk chunk = event.getChunk();
                         short[] generated = generateChunkHeightMap(chunk);
                         worldMap.put(chunkKey, generated);
                         NewGeneratedChunks.computeIfAbsent(event.getWorld().getKey(), k -> ConcurrentHashMap.newKeySet()).add(chunkKey);

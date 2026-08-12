@@ -3,6 +3,7 @@ version: '${version}'
 
 main: me.moos.bigStatics.BigStatics
 api-version: '26.1.2'
+folia-supported: true
 load: STARTUP
 
 authors: [ Moos ]
