@@ -37,3 +37,6 @@ Sky-bases and -bridges have actively ruined the balancing of my *realciv-server*
 ## Contact me
 Feel free to contact me on on Discord.
 >My Discord handle: @moos13
+
+## License
+Please read LICENSE.md for information on the licensing of this project.
