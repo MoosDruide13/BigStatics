@@ -14,6 +14,7 @@ public class StaticsManager implements Listener {
     @EventHandler(priority = EventPriority.LOW)
     public void onBlockPlaced(BlockPlaceEvent event) {
         if (event.isCancelled()) return;
+        if (!event.getBlockPlaced().isSolid()) return;
 
         int complexity = computeStructureComplexity(event.getBlock().getLocation());
         //event.getPlayer().sendMessage(Component.text("Complexity: " + complexity));
@@ -61,7 +62,7 @@ public class StaticsManager implements Listener {
             int terrainY = OriginalTerrainHeightMapManager.getY(x, z, world);
 
             // reached natural terrain
-            if (terrainY >= y && world.getBlockAt(x, terrainY - 1, z).isSolid()) {
+            if (terrainY >= y) {
                 return cost;
             }
 

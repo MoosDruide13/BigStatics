@@ -173,7 +173,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
 
         String worldKeyString = world.getKey().asString();
         if (Arrays.asList(BLACKLISTED_WORLDS).contains(worldKeyString))
-            return 0;
+            return world.getMaxHeight();
 
         Bukkit.getLogger().severe("Tried to use heightmap of uncached world " + world.getKey().asString());
         return 999;
