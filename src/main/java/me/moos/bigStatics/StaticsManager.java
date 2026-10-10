@@ -2,6 +2,8 @@ package me.moos.bigStatics;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.*;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -14,7 +16,7 @@ public class StaticsManager implements Listener {
     @EventHandler(priority = EventPriority.LOW)
     public void onBlockPlaced(BlockPlaceEvent event) {
         if (event.isCancelled()) return;
-        if (!event.getBlockPlaced().isSolid()) return;
+        if (isBlockSupportedByWater(event.getBlockPlaced())) return;
 
         int complexity = computeStructureComplexity(event.getBlock().getLocation());
         //event.getPlayer().sendMessage(Component.text("Complexity: " + complexity));
@@ -23,6 +25,10 @@ public class StaticsManager implements Listener {
             event.setCancelled(true);
             event.getPlayer().sendMessage(Component.text("This location can not support a block here!").appendNewline().append(Component.text("You could build additional support pillars.")));
         }
+    }
+
+    public boolean isBlockSupportedByWater(Block block) {
+        return block.getType() == Material.LILY_PAD && block.getRelative(BlockFace.DOWN).getType() == Material.WATER;
     }
 
     public int computeStructureComplexity(Location start) {
