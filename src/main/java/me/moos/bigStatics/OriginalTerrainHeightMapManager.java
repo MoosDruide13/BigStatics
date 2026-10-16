@@ -13,6 +13,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Set;
@@ -104,7 +106,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
         int regionZ = chunkZ >> 5;
 
         String dataFolder = JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class).getDataFolder().getPath();
-        File heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString() + "/r." + regionX + "." + regionZ + ".bhm");
+        File heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString().replace(":", "_") + "/r." + regionX + "." + regionZ + ".bhm");
 
         if (!heightMapFile.exists()) {
             return new short[0];
@@ -226,6 +228,34 @@ public class OriginalTerrainHeightMapManager implements Listener {
         });
     }
 
+    public void onServerStart() {
+        /*
+            Since BigStatics used to rely on a directory structure like "./plugins/BigStatics/OriginalHeightMaps/minecraft:overworld/" the plugin was not functional on Windows.
+            Windows can not work with colons (':') in file paths!
+            To fix this, we run this logic on server startup that will replace every colon within a directory name within the OriginalHeightMaps directory with an underscore ('_').
+         */
+        Path parent = JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class).getDataPath().resolve("OriginalHeightMaps");
+        try {
+            var entries = Files.list(parent);
+            entries.filter(Files::isDirectory).forEach(dir -> {
+                String name = dir.getFileName().toString();
+
+                if (name.contains(":")) {
+                    Path renamed = dir.resolveSibling(name.replace(':', '_'));
+                    try {
+                        Bukkit.getLogger().info("Migrating directory: " + dir.toString() + " -> " + renamed.toString());
+                        Files.move(dir, renamed);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            });
+        }
+        catch (Exception e) {
+            Bukkit.getLogger().severe("Exception thrown while trying to run file path migration logic: " + e);
+        }
+    }
+
     public void onServerStop() {
         Bukkit.getLogger().info("Saving heightmap data!");
         saveAllHeightMapData();
@@ -264,7 +294,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
         int regionZ = chunkZ >> 5;
 
         String dataFolder = JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class).getDataFolder().getPath();
-        File heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString() + "/r." + regionX + "." + regionZ + ".bhm");
+        File heightMapFile = new File(dataFolder + "/OriginalHeightMaps/" + worldKey.asString().replace(':', '_') + "/r." + regionX + "." + regionZ + ".bhm");
         String regionKey = worldKey.asString() + ":" + regionX + ":" + regionZ;
 
         int localIndex = (chunkX & 31) + ((chunkZ & 31) * 32);

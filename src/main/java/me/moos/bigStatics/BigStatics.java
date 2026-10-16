@@ -11,6 +11,7 @@ public final class BigStatics extends JavaPlugin {
     @Override
     public void onEnable() {
         // Plugin startup logic
+        hm.onServerStart();
         Bukkit.getServer().getPluginManager().registerEvents(hm, this);
         Bukkit.getServer().getPluginManager().registerEvents(sm, this);
     }
