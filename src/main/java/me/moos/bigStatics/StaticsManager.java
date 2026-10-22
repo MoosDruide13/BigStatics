@@ -13,6 +13,12 @@ import java.util.HashMap;
 
 public class StaticsManager implements Listener {
 
+    private BigStatics PluginInstance;
+
+    public StaticsManager(BigStatics pluginInstance) {
+        PluginInstance = pluginInstance;
+    }
+
     @EventHandler(priority = EventPriority.LOW)
     public void onBlockPlaced(BlockPlaceEvent event) {
         if (event.isCancelled()) return;

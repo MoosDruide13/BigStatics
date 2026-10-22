@@ -5,8 +5,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public final class BigStatics extends JavaPlugin {
 
-    OriginalTerrainHeightMapManager hm = new OriginalTerrainHeightMapManager();
-    StaticsManager sm = new StaticsManager();
+    private final OriginalTerrainHeightMapManager hm = new OriginalTerrainHeightMapManager(this);
+    private final StaticsManager sm = new StaticsManager(this);
+
 
     @Override
     public void onEnable() {
@@ -20,6 +21,6 @@ public final class BigStatics extends JavaPlugin {
     public void onDisable() {
         // Plugin shutdown logic
         hm.onServerStop();
-        Bukkit.getLogger().info("Done saving!");
+        this.getLogger().info("Done saving!");
     }
 }

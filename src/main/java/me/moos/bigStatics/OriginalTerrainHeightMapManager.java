@@ -30,8 +30,14 @@ public class OriginalTerrainHeightMapManager implements Listener {
     static final ConcurrentHashMap<NamespacedKey, Set<Long>> PendingLoads = new ConcurrentHashMap<>();
     static final ConcurrentHashMap<String, Object> FileLocks = new ConcurrentHashMap<>();
 
+    private static BigStatics PluginInstance;
+
     private static final int DATA_SIZE_PER_CHUNK = 512; // 16*16 * 2 bytes
     private static final int BITSET_SIZE = 128; // 1024 bits / 8
+
+    public OriginalTerrainHeightMapManager(BigStatics pluginInstance) {
+        PluginInstance = pluginInstance;
+    }
 
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
@@ -144,7 +150,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
                 return output;
 
             } catch (IOException e) {
-                Bukkit.getLogger().severe("Failed to load heightmap: " + e.getMessage());
+                PluginInstance.getLogger().severe("Failed to load heightmap: " + e.getMessage());
                 return new short[0];
             }
         }
@@ -159,7 +165,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
             if (worldMap != null && worldMap.containsKey(chunkKey)) {
                 short[] heightMap = worldMap.get(chunkKey);
                 if (heightMap == null) {
-                    Bukkit.getLogger().severe("heightMap for location " + blockX + ", " + blockZ + " in world " + world.getKey().asString() + " is null!");
+                    PluginInstance.getLogger().severe("heightMap for location " + blockX + ", " + blockZ + " in world " + world.getKey().asString() + " is null!");
                     return -999;
                 }
                 int localX = blockX & 15;
@@ -168,7 +174,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
                 return heightMap[index];
             }
 
-            Bukkit.getLogger().severe("Tried to use heightmap of unloaded chunk");
+            PluginInstance.getLogger().severe("Tried to use heightmap of unloaded chunk");
             return 999;
         }
 
@@ -177,7 +183,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
         if (Arrays.asList(BLACKLISTED_WORLDS).contains(worldKeyString))
             return world.getMaxHeight();
 
-        Bukkit.getLogger().severe("Tried to use heightmap of uncached world " + world.getKey().asString());
+        PluginInstance.getLogger().severe("Tried to use heightmap of uncached world " + world.getKey().asString());
         return 999;
     }
 
@@ -203,13 +209,13 @@ public class OriginalTerrainHeightMapManager implements Listener {
         LoadedChunkHeightMaps.computeIfAbsent(worldKey, k -> new ConcurrentHashMap<>());
         NewGeneratedChunks.computeIfAbsent(worldKey, k -> ConcurrentHashMap.newKeySet());
 
-        Bukkit.getLogger().info("Added world '" + worldKey.asString() + "' to the heightmap cache.");
+        PluginInstance.getLogger().info("Added world '" + worldKey.asString() + "' to the heightmap cache.");
     }
 
     @EventHandler
     public void onWorldUnload(WorldUnloadEvent event) {
         NamespacedKey worldKey = event.getWorld().getKey();
-        Bukkit.getLogger().info("Saving heightmap data of " + worldKey.asString());
+        PluginInstance.getLogger().info("Saving heightmap data of " + worldKey.asString());
 
         ConcurrentHashMap<Long, short[]> worldMap = LoadedChunkHeightMaps.get(worldKey);
         if (worldMap == null) {
@@ -224,7 +230,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
             LoadedChunkHeightMaps.remove(worldKey);
             NewGeneratedChunks.remove(worldKey);
 
-            Bukkit.getLogger().info("Removed world '" + worldKey.asString() + "' from cache.");
+            PluginInstance.getLogger().info("Removed world '" + worldKey.asString() + "' from cache.");
         });
     }
 
@@ -243,7 +249,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
                 if (name.contains(":")) {
                     Path renamed = dir.resolveSibling(name.replace(':', '_'));
                     try {
-                        Bukkit.getLogger().info("Migrating directory: " + dir.toString() + " -> " + renamed.toString());
+                        PluginInstance.getLogger().info("Migrating directory: " + dir.toString() + " -> " + renamed.toString());
                         Files.move(dir, renamed);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
@@ -252,12 +258,12 @@ public class OriginalTerrainHeightMapManager implements Listener {
             });
         }
         catch (Exception e) {
-            Bukkit.getLogger().severe("Exception thrown while trying to run file path migration logic: " + e);
+            PluginInstance.getLogger().severe("Exception thrown while trying to run file path migration logic: " + e);
         }
     }
 
     public void onServerStop() {
-        Bukkit.getLogger().info("Saving heightmap data!");
+        PluginInstance.getLogger().info("Saving heightmap data!");
         saveAllHeightMapData();
     }
 
@@ -340,7 +346,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
                 }
 
             } catch (IOException e) {
-                Bukkit.getLogger().severe("Failed to save heightmap: " + e.getMessage());
+                PluginInstance.getLogger().severe("Failed to save heightmap: " + e.getMessage());
             }
         }
     }
