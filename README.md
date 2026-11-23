@@ -28,8 +28,9 @@ Big Statics stores the heightmap data of all loaded chunks (excluding blackliste
 
 ## Supported platforms
 This plugin is **100% Folia compatible**.
-All the heightmap-data *generation*, *loading* and *saving* is done **async**.
+All the heightmap-data *generation*¹, *loading* and *saving* is done **async**.
 **Only Paper and Folia are supported**, feel free to fork for other specific ecosystems.
+- ¹ only with USE_EXPENSIVE_GENERATION enabled
 
 ## Why I made this
 Sky-bases and -bridges have actively ruined the balancing of my *realciv-server* known as *Big World* where the intention is to offer an experience inspired by a mix of *Factions*, *Civilization Events*, *(soft-) anarchy* and *MMOs*.
