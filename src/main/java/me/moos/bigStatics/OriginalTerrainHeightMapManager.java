@@ -344,20 +344,22 @@ public class OriginalTerrainHeightMapManager implements Listener {
          */
         Path parent = JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class).getDataPath().resolve("OriginalHeightMaps");
         try {
-            var entries = Files.list(parent);
-            entries.filter(Files::isDirectory).forEach(dir -> {
-                String name = dir.getFileName().toString();
+            if (parent.toFile().exists()) {
+                var entries = Files.list(parent);
+                entries.filter(Files::isDirectory).forEach(dir -> {
+                    String name = dir.getFileName().toString();
 
-                if (name.contains(":")) {
-                    Path renamed = dir.resolveSibling(name.replace(':', '_'));
-                    try {
-                        PluginInstance.getLogger().info("Migrating directory: " + dir.toString() + " -> " + renamed.toString());
-                        Files.move(dir, renamed);
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
+                    if (name.contains(":")) {
+                        Path renamed = dir.resolveSibling(name.replace(':', '_'));
+                        try {
+                            PluginInstance.getLogger().info("Migrating directory: " + dir.toString() + " -> " + renamed.toString());
+                            Files.move(dir, renamed);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
                     }
-                }
-            });
+                });
+            }
         }
         catch (Exception e) {
             PluginInstance.getLogger().severe("Exception thrown while trying to run file path migration logic: " + e);
