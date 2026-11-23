@@ -389,15 +389,6 @@ public class OriginalTerrainHeightMapManager implements Listener {
         catch (Exception e) {
             PluginInstance.getLogger().severe("Exception thrown while trying to run file path migration logic: " + e);
         }
-
-        if (USE_EXPENSIVE_GENERATION) {
-            PluginInstance.getLogger().warning("""
-                    USE_EXPENSIVE_GENERATION is enabled (compile-time)!
-                    While it is not game-breaking, it can cause major TPS drops during chunk generation right now.
-                    You can ignore this, if you pregenerate your world completely.
-                    A fix is already being worked on, but it may take some time until it releases.
-                    """);
-        }
     }
 
     public void onServerStop() {
