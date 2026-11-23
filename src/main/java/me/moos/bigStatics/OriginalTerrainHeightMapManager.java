@@ -2,8 +2,6 @@ package me.moos.bigStatics;
 
 import com.destroystokyo.paper.MaterialSetTag;
 import org.bukkit.*;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.ChunkLoadEvent;
@@ -33,7 +31,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
     If USE_EXPENSIVE_GENERATION is set to false, the heightmap generation will never
     iterate over actual blocks and uses the output of Bukkit's OCEAN_FLOOR heightmap directly.
      */
-    static final boolean USE_EXPENSIVE_GENERATION = false;
+    static final boolean USE_EXPENSIVE_GENERATION = true;
     /*
     If USE_EXPENSIVE_GENERATION is set to true, the heightmap generation will only
     detect the highest anchor block with at least EXPENSIVE_GENERATION_MAX_DEPTH amount
@@ -42,7 +40,7 @@ public class OriginalTerrainHeightMapManager implements Listener {
     on how often the world generation generates the top-most anchor block with
     non-anchor blocks below it.
      */
-    static final int EXPENSIVE_GENERATION_MAX_DEPTH = 3;
+    static final int EXPENSIVE_GENERATION_MAX_DEPTH = 9;
     /*
     If USE_EXPENSIVE_GENERATION is set to true, the heightmap generation will only allow blocks
     with a material listed here to be detected as terrain.
@@ -144,7 +142,11 @@ public class OriginalTerrainHeightMapManager implements Listener {
             return; // Already loading this chunk
         }
 
-        Bukkit.getAsyncScheduler().runNow(JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class), task -> {
+        int chunkX = event.getChunk().getX();
+        int chunkZ = event.getChunk().getZ();
+        World world = event.getWorld();
+
+        Bukkit.getAsyncScheduler().runNow(PluginInstance, task -> {
             short[] loaded = loadChunkHeightMap(chunkKey, worldKey);
 
             if (loaded.length != 0) {
@@ -153,16 +155,27 @@ public class OriginalTerrainHeightMapManager implements Listener {
                     pending.remove(chunkKey);
                 }
             } else {
-                int chunkX = event.getChunk().getX();
-                int chunkZ = event.getChunk().getZ();
-                Bukkit.getRegionScheduler().run(JavaPlugin.getProvidingPlugin(OriginalTerrainHeightMapManager.class), event.getWorld(), chunkX, chunkZ, syncTask -> {
+                Bukkit.getRegionScheduler().run(PluginInstance, world, chunkX, chunkZ, syncTask -> {
                     if (pending.contains(chunkKey)) {
                         Chunk chunk = event.getChunk();
+                        int worldMinHeight = chunk.getWorld().getMinHeight();
                         short[] generated = generateChunkHeightMap(chunk);
-                        worldMap.put(chunkKey, generated);
-                        NewGeneratedChunks.computeIfAbsent(event.getWorld().getKey(), k -> ConcurrentHashMap.newKeySet()).add(chunkKey);
+
+                        if (USE_EXPENSIVE_GENERATION) {
+                            ChunkSnapshot chunkSnap = chunk.getChunkSnapshot(false, false, false);
+                            Bukkit.getAsyncScheduler().runNow(PluginInstance, asyncTask -> {
+                                short[] expensiveHeightmap = generateExpensiveGenerationChunkHeightMapAsync(chunkSnap, worldMinHeight, generated);
+                                worldMap.put(chunkKey, expensiveHeightmap);
+                                NewGeneratedChunks.computeIfAbsent(worldKey, k -> ConcurrentHashMap.newKeySet()).add(chunkKey);
+                                pending.remove(chunkKey);
+                            });
+                        }
+                        else {
+                            worldMap.put(chunkKey, generated);
+                            NewGeneratedChunks.computeIfAbsent(event.getWorld().getKey(), k -> ConcurrentHashMap.newKeySet()).add(chunkKey);
+                            pending.remove(chunkKey);
+                        }
                     }
-                    pending.remove(chunkKey);
                 });
             }
         });
@@ -273,23 +286,35 @@ public class OriginalTerrainHeightMapManager implements Listener {
         return 999;
     }
 
+    // Runs sync / RegionScheduler
     private short[] generateChunkHeightMap(Chunk chunk) {
-        short[] heightmap = new short[16 * 16];
         World world = chunk.getWorld();
+        short[] heightmap = new short[16 * 16];
         int heightmapIndex = 0;
         for (int localBlockX = 0; localBlockX < 16; localBlockX++) {
             for (int localBlockZ = 0; localBlockZ < 16; localBlockZ++) {
                 int globalBlockY = world.getHighestBlockYAt((chunk.getX() * 16) + localBlockX, (chunk.getZ() * 16) + localBlockZ, HeightMap.OCEAN_FLOOR);
+                heightmap[heightmapIndex] = (short)globalBlockY;
+                heightmapIndex++;
+            }
+        }
 
-                if (USE_EXPENSIVE_GENERATION) {
-                    boolean validBlockFound = false;
-                    while (globalBlockY > chunk.getWorld().getMinHeight() && !validBlockFound) {
-                        Block block = world.getBlockAt((chunk.getX() * 16) + localBlockX, globalBlockY, (chunk.getZ() * 16) + localBlockZ);
-                        validBlockFound = isBlockValidForExpensiveGeneration(block, 0);
+        return heightmap;
+    }
 
-                        if (!validBlockFound) {
-                            globalBlockY--;
-                        }
+    // Runs async / AsyncScheduler
+    private short[] generateExpensiveGenerationChunkHeightMapAsync(ChunkSnapshot chunkSnap, int worldMinHeight, short[] rawBukkitHeightmap) {
+        short[] heightmap = new short[16 * 16];
+        int heightmapIndex = 0;
+        for (int localBlockX = 0; localBlockX < 16; localBlockX++) {
+            for (int localBlockZ = 0; localBlockZ < 16; localBlockZ++) {
+                int globalBlockY = rawBukkitHeightmap[heightmapIndex];
+                boolean validBlockFound = false;
+                while (globalBlockY > worldMinHeight && !validBlockFound) {
+                    validBlockFound = isBlockValidForExpensiveGeneration(chunkSnap, localBlockX, globalBlockY, localBlockZ, worldMinHeight, 0);
+
+                    if (!validBlockFound) {
+                        globalBlockY--;
                     }
                 }
 
@@ -381,10 +406,10 @@ public class OriginalTerrainHeightMapManager implements Listener {
     }
 
     // Recursion! Scary!
-    private boolean isBlockValidForExpensiveGeneration(Block block, int currentDepth) {
-        boolean valid = ExpensiveGenerationBlockWhitelistTag.isTagged(block);
-        if (valid && currentDepth < EXPENSIVE_GENERATION_MAX_DEPTH && block.getY() > block.getWorld().getMinHeight()) {
-            valid = isBlockValidForExpensiveGeneration(block.getRelative(BlockFace.DOWN), currentDepth + 1);
+    private boolean isBlockValidForExpensiveGeneration(ChunkSnapshot chunkSnap, int localBlockX, int globalBlockY, int localBlockZ, int minY, int currentDepth) {
+        boolean valid = ExpensiveGenerationBlockWhitelistTag.isTagged(chunkSnap.getBlockType(localBlockX, globalBlockY, localBlockZ));
+        if (valid && currentDepth < EXPENSIVE_GENERATION_MAX_DEPTH && globalBlockY > minY) {
+            valid = isBlockValidForExpensiveGeneration(chunkSnap, localBlockX, globalBlockY - 1, localBlockZ, minY, currentDepth + 1);
         }
 
         return valid;
