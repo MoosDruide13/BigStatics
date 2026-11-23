@@ -28,7 +28,7 @@ Big Statics stores the heightmap data of all loaded chunks (excluding blackliste
 
 ## Supported platforms
 This plugin is **100% Folia compatible**.
-All the heightmap-data *generation*, *loading* and *saving* is done **async**.
+All the heightmap-data *loading* and *saving* is done **async**.
 **Only Paper and Folia are supported**, feel free to fork for other specific ecosystems.
 
 ## Why I made this
