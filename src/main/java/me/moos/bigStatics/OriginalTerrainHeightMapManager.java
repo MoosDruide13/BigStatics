@@ -1,6 +1,9 @@
 package me.moos.bigStatics;
 
+import com.destroystokyo.paper.MaterialSetTag;
 import org.bukkit.*;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.world.ChunkLoadEvent;
@@ -21,8 +24,89 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class OriginalTerrainHeightMapManager implements Listener {
+    /*
+    If USE_EXPENSIVE_GENERATION is set to true, the heightmap generation will iterate
+    over at least 16 * 16 * EXPENSIVE_GENERATION_MAX_DEPTH blocks per chunk in the best case!!!
+    The benefit of that is that many things like trees and most structures will no longer be detected as terrain.
+    It also allows to set a minimum thickness of anchor blocks (EXPENSIVE_GENERATION_MAX_DEPTH) before a position
+    is recognized as the anchor height.
+    If USE_EXPENSIVE_GENERATION is set to false, the heightmap generation will never
+    iterate over actual blocks and uses the output of Bukkit's OCEAN_FLOOR heightmap directly.
+     */
+    static final boolean USE_EXPENSIVE_GENERATION = false;
+    /*
+    If USE_EXPENSIVE_GENERATION is set to true, the heightmap generation will only
+    detect the highest anchor block with at least EXPENSIVE_GENERATION_MAX_DEPTH amount
+    of other anchor blocks directly below it as the terrain height.
+    Increasing this value could impact generation performance drastically depending
+    on how often the world generation generates the top-most anchor block with
+    non-anchor blocks below it.
+     */
+    static final int EXPENSIVE_GENERATION_MAX_DEPTH = 3;
+    /*
+    If USE_EXPENSIVE_GENERATION is set to true, the heightmap generation will only allow blocks
+    with a material listed here to be detected as terrain.
+    By default, this is optimized for Big World's world generation.
+    */
+    static final Material[] EXPENSIVE_GENERATION_BLOCK_WHITELIST = new Material[] {
+            Material.STONE,
+            Material.ANDESITE,
+            Material.DIORITE,
+            Material.GRANITE,
+            Material.SANDSTONE,
+            Material.RED_SANDSTONE,
+            Material.TUFF,
+            Material.DEEPSLATE,
+            Material.SMOOTH_BASALT,
+            Material.BEDROCK,
+            Material.INFESTED_STONE,
+            Material.BASALT,
+            Material.NETHERRACK,
+            Material.END_STONE,
+            Material.COAL_ORE,
+            Material.DEEPSLATE_COAL_ORE,
+            Material.COPPER_ORE,
+            Material.DEEPSLATE_COPPER_ORE,
+            Material.RAW_COPPER_BLOCK,
+            Material.IRON_ORE,
+            Material.DEEPSLATE_IRON_ORE,
+            Material.RAW_IRON_BLOCK,
+            Material.GOLD_ORE,
+            Material.DEEPSLATE_GOLD_ORE,
+            Material.RAW_GOLD_BLOCK,
+            Material.EMERALD_ORE,
+            Material.DEEPSLATE_EMERALD_ORE,
+            Material.REDSTONE_ORE,
+            Material.DEEPSLATE_REDSTONE_ORE,
+            Material.LAPIS_ORE,
+            Material.DEEPSLATE_LAPIS_ORE,
+            Material.DIAMOND_ORE,
+            Material.DEEPSLATE_DIAMOND_ORE,
+            Material.NETHER_GOLD_ORE,
+            Material.NETHER_QUARTZ_ORE,
+            Material.ANCIENT_DEBRIS,
+            Material.BLACKSTONE,
+            Material.CALCITE,
+            Material.TERRACOTTA,
+            Material.BLACK_TERRACOTTA,
+            Material.BLUE_TERRACOTTA,
+            Material.BROWN_TERRACOTTA,
+            Material.CYAN_TERRACOTTA,
+            Material.GRAY_TERRACOTTA,
+            Material.GREEN_TERRACOTTA,
+            Material.LIGHT_BLUE_TERRACOTTA,
+            Material.LIGHT_GRAY_TERRACOTTA,
+            Material.LIME_TERRACOTTA,
+            Material.MAGENTA_TERRACOTTA,
+            Material.ORANGE_TERRACOTTA,
+            Material.PINK_TERRACOTTA,
+            Material.PURPLE_TERRACOTTA,
+            Material.RED_TERRACOTTA,
+            Material.WHITE_TERRACOTTA,
+            Material.YELLOW_TERRACOTTA
+    };
     static final String[] BLACKLISTED_WORLDS = {
-        "minecraft:the_nether"
+            "minecraft:the_nether"
     };
 
     static final ConcurrentHashMap<NamespacedKey, ConcurrentHashMap<Long, short[]>> LoadedChunkHeightMaps = new ConcurrentHashMap<>();
@@ -34,9 +118,11 @@ public class OriginalTerrainHeightMapManager implements Listener {
 
     private static final int DATA_SIZE_PER_CHUNK = 512; // 16*16 * 2 bytes
     private static final int BITSET_SIZE = 128; // 1024 bits / 8
+    private static MaterialSetTag ExpensiveGenerationBlockWhitelistTag;
 
     public OriginalTerrainHeightMapManager(BigStatics pluginInstance) {
         PluginInstance = pluginInstance;
+        ExpensiveGenerationBlockWhitelistTag = new MaterialSetTag(new NamespacedKey(PluginInstance, "expensive_generation_block_whitelist"), EXPENSIVE_GENERATION_BLOCK_WHITELIST);
     }
 
     @EventHandler
@@ -187,12 +273,28 @@ public class OriginalTerrainHeightMapManager implements Listener {
         return 999;
     }
 
-    private static short[] generateChunkHeightMap(Chunk chunk) {
+    private short[] generateChunkHeightMap(Chunk chunk) {
         short[] heightmap = new short[16 * 16];
         World world = chunk.getWorld();
-        for (int x = 0; x < 16; x++) {
-            for (int z = 0; z < 16; z++) {
-                heightmap[x + (z * 16)] = (short)world.getHighestBlockYAt((chunk.getX() * 16) + x, (chunk.getZ() * 16) + z, HeightMap.OCEAN_FLOOR);
+        int heightmapIndex = 0;
+        for (int localBlockX = 0; localBlockX < 16; localBlockX++) {
+            for (int localBlockZ = 0; localBlockZ < 16; localBlockZ++) {
+                int globalBlockY = world.getHighestBlockYAt((chunk.getX() * 16) + localBlockX, (chunk.getZ() * 16) + localBlockZ, HeightMap.OCEAN_FLOOR);
+
+                if (USE_EXPENSIVE_GENERATION) {
+                    boolean validBlockFound = false;
+                    while (globalBlockY > chunk.getWorld().getMinHeight() && !validBlockFound) {
+                        Block block = world.getBlockAt((chunk.getX() * 16) + localBlockX, globalBlockY, (chunk.getZ() * 16) + localBlockZ);
+                        validBlockFound = isBlockValidForExpensiveGeneration(block, 0);
+
+                        if (!validBlockFound) {
+                            globalBlockY--;
+                        }
+                    }
+                }
+
+                heightmap[heightmapIndex] = (short)globalBlockY;
+                heightmapIndex++;
             }
         }
 
@@ -260,11 +362,30 @@ public class OriginalTerrainHeightMapManager implements Listener {
         catch (Exception e) {
             PluginInstance.getLogger().severe("Exception thrown while trying to run file path migration logic: " + e);
         }
+
+        if (USE_EXPENSIVE_GENERATION) {
+            PluginInstance.getLogger().warning("""
+                    USE_EXPENSIVE_GENERATION is enabled (compile-time)!
+                    While it is not game-breaking, it can cause major TPS drops during chunk generation right now.
+                    You can ignore this, if you pregenerate your world completely.
+                    A fix is already being worked on, but it may take some time until it releases.
+                    """);
+        }
     }
 
     public void onServerStop() {
         PluginInstance.getLogger().info("Saving heightmap data!");
         saveAllHeightMapData();
+    }
+
+    // Recursion! Scary!
+    private boolean isBlockValidForExpensiveGeneration(Block block, int currentDepth) {
+        boolean valid = ExpensiveGenerationBlockWhitelistTag.isTagged(block);
+        if (valid && currentDepth < EXPENSIVE_GENERATION_MAX_DEPTH && block.getY() > block.getWorld().getMinHeight()) {
+            valid = isBlockValidForExpensiveGeneration(block.getRelative(BlockFace.DOWN), currentDepth + 1);
+        }
+
+        return valid;
     }
 
     private static void saveAllHeightMapData() {
