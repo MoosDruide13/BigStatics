@@ -19,7 +19,7 @@ public class GravityManager implements Listener {
     being checked with StaticsManager.
     If a block is deemed unsupported, it will be moved down until it is no longer floating.
     */
-    static final boolean ENABLE_BLOCK_GRAVITY = true;
+    static final boolean ENABLE_BLOCK_GRAVITY = false;
     /*
     If ENABLE_BLOCK_GRAVITY is set to true, the queue will be processed at a maximum rate
     of GRAVITY_BLOCK_CHECKS_PER_TICK blocks per tick.
