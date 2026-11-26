@@ -4,6 +4,8 @@ A Paper / Folia Minecraft plugin that adds building constraints requiring floati
 
 ## How does it impact gameplay?
 Whenever a player tries to place a block, the plugin compares the new block's position with a heightmap to check if it is floating above the surface.
+There is also an optional block gravity mode which will cause structures to collapse if the support pillars are removed.
+Gravity is disabled by default because it can cause performance issues (it takes a lot of CPU) and can quickly be used to destroy structures above the surface.
 
 ## What is the main purpose?
 This plugin is designed to heavily limit the construction of "sky bases/bridges".
