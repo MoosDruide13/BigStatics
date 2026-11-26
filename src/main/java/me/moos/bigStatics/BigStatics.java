@@ -7,7 +7,7 @@ public final class BigStatics extends JavaPlugin {
 
     private final OriginalTerrainHeightMapManager hm = new OriginalTerrainHeightMapManager(this);
     private final StaticsManager sm = new StaticsManager(this);
-
+    private final GravityManager gm = new GravityManager(this, sm);
 
     @Override
     public void onEnable() {
@@ -15,6 +15,7 @@ public final class BigStatics extends JavaPlugin {
         hm.onServerStart();
         Bukkit.getServer().getPluginManager().registerEvents(hm, this);
         Bukkit.getServer().getPluginManager().registerEvents(sm, this);
+        Bukkit.getServer().getPluginManager().registerEvents(gm, this);
     }
 
     @Override
